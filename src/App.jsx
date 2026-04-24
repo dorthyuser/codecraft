@@ -7,34 +7,37 @@ import { UploadModal, DiffModal, TestsModal, PrModal } from './components/Modals
 import { PROJECTS, CODE_SAMPLES } from './data/index';
 
 const TWEAK_DEFAULTS = { theme: 'light', accent: 'blue' };
-
 const ACCENTS = {
-  blue: {
-    light: ['oklch(48% 0.14 258)', 'oklch(96% 0.02 258)', 'oklch(32% 0.14 258)'],
-    dark:  ['oklch(72% 0.14 245)', 'oklch(28% 0.08 245)', 'oklch(88% 0.08 245)'],
-  },
-  teal: {
-    light: ['oklch(52% 0.11 200)', 'oklch(96% 0.025 200)', 'oklch(35% 0.11 200)'],
-    dark:  ['oklch(75% 0.11 195)', 'oklch(28% 0.07 195)', 'oklch(88% 0.08 195)'],
-  },
+  blue: { light: ['oklch(48% 0.14 258)','oklch(96% 0.02 258)','oklch(32% 0.14 258)'], dark: ['oklch(72% 0.14 245)','oklch(28% 0.08 245)','oklch(88% 0.08 245)'] },
+  teal: { light: ['oklch(52% 0.11 200)','oklch(96% 0.025 200)','oklch(35% 0.11 200)'], dark: ['oklch(75% 0.11 195)','oklch(28% 0.07 195)','oklch(88% 0.08 195)'] },
 };
 
 export default function App() {
   const [view, setView] = useState('dashboard');
-  const [project, setProject] = useState(PROJECTS[0]);
-  const [language, setLanguage] = useState('java');
+
+  // Active project (demo or real)
+  const [project, setProject] = useState(null);
+
+  // Real workspace state (set when user uploads / clones / pastes)
+  const [workspaceId, setWorkspaceId] = useState(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState([]);   // file tree from backend
+  const [currentFile, setCurrentFile] = useState(null);       // { path, content, language }
+  const [repoInfo, setRepoInfo] = useState(null);             // { owner, repo } from GitHub clone
+
+  // UI state
   const [activity, setActivity] = useState('fix');
   const [selectedSugg, setSelectedSugg] = useState(null);
-
   const [uploadMode, setUploadMode] = useState(null);
   const [diffSugg, setDiffSugg] = useState(null);
+  const [diffData, setDiffData] = useState(null);             // real diff from backend
+  const [modifiedCode, setModifiedCode] = useState(null);
   const [testsOpen, setTestsOpen] = useState(false);
   const [prOpen, setPrOpen] = useState(false);
-
   const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
   const [tweaksUIVisible, setTweaksUIVisible] = useState(false);
   const [toasts, setToasts] = useState([]);
 
+  // Apply theme/accent
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', tweaks.theme);
     const [a, s, ink] = tweaks.theme === 'dark' ? ACCENTS[tweaks.accent].dark : ACCENTS[tweaks.accent].light;
@@ -45,7 +48,7 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e) => {
-      if (!e.data || !e.data.type) return;
+      if (!e.data?.type) return;
       if (e.data.type === '__activate_edit_mode') setTweaksUIVisible(true);
       if (e.data.type === '__deactivate_edit_mode') setTweaksUIVisible(false);
     };
@@ -55,27 +58,51 @@ export default function App() {
   }, []);
 
   const setTweak = (patch) => {
-    const next = { ...tweaks, ...patch };
-    setTweaks(next);
+    setTweaks(t => ({ ...t, ...patch }));
     try { window.parent.postMessage({ type: '__edit_mode_set_keys', edits: patch }, '*'); } catch {}
   };
 
   const toast = (title, body, kind = 'success') => {
     const id = Math.random().toString(36).slice(2);
     setToasts(t => [...t, { id, title, body, kind }]);
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4000);
   };
 
-  const openProject = (p) => {
+  // Open a demo project (no real workspace)
+  const openDemoProject = (p) => {
     setProject(p);
-    setLanguage(p.lang === 'py' ? 'node' : (CODE_SAMPLES[p.lang] ? p.lang : 'java'));
+    setWorkspaceId(null);
+    setWorkspaceFiles([]);
+    setCurrentFile(null);
+    setRepoInfo(null);
     setActivity('fix');
     setSelectedSugg(null);
     setView('workspace');
   };
 
+  // Open a real workspace (from upload / paste / clone)
+  const openRealWorkspace = ({ workspaceId: wid, tree, project: proj, openFile, repoInfo: ri }) => {
+    setWorkspaceId(wid);
+    setWorkspaceFiles(tree || []);
+    setProject(proj || { id: wid, name: 'My Project', branch: 'main', lang: 'java' });
+    setRepoInfo(ri || null);
+    setActivity('fix');
+    setSelectedSugg(null);
+    setCurrentFile(openFile || null);
+    setDiffData(null);
+    setModifiedCode(null);
+    setView('workspace');
+  };
+
+  const handleOpenDiff = (sugg, diffDataFromBackend, modCode) => {
+    setDiffSugg(sugg);
+    setDiffData(diffDataFromBackend || null);
+    setModifiedCode(modCode || null);
+  };
+
   return (
     <div className="app">
+      {/* Top bar */}
       <div className="topbar">
         <div className="brand">
           <span className="brand-mark">&lt;/&gt;</span>
@@ -84,12 +111,16 @@ export default function App() {
         <span className="sep"></span>
         <div className="crumb">
           <span className="here" style={{ cursor: 'pointer' }} onClick={() => setView('dashboard')}>Projects</span>
-          {view === 'workspace' && (
+          {view === 'workspace' && project && (
             <>
               <I.ChevR size={11} />
               <span className="here">{project.name}</span>
-              <I.ChevR size={11} />
-              <span className="mono" style={{ fontSize: 12 }}>{CODE_SAMPLES[language]?.file}</span>
+              {currentFile && (
+                <>
+                  <I.ChevR size={11} />
+                  <span className="mono" style={{ fontSize: 12 }}>{currentFile.path.split('/').pop()}</span>
+                </>
+              )}
             </>
           )}
         </div>
@@ -102,66 +133,93 @@ export default function App() {
         <button className="icon-btn" title="Settings" onClick={() => setTweaksUIVisible(v => !v)}>
           <I.Settings size={15} />
         </button>
-        <div className="avatar">PS</div>
+        <div className="avatar">AI</div>
       </div>
 
       {view === 'dashboard' && (
-        <Dashboard onOpenProject={openProject} onUpload={(mode) => setUploadMode(mode)} />
+        <Dashboard
+          onOpenProject={openDemoProject}
+          onUpload={(mode) => setUploadMode(mode)}
+        />
       )}
 
-      {view === 'workspace' && (
+      {view === 'workspace' && project && (
         <Workspace
           project={project}
-          language={language}
-          onChangeLang={setLanguage}
+          workspaceId={workspaceId}
+          workspaceFiles={workspaceFiles}
+          currentFile={currentFile}
+          setCurrentFile={setCurrentFile}
           activity={activity}
           setActivity={setActivity}
           selectedSugg={selectedSugg}
           setSelectedSugg={setSelectedSugg}
-          onBack={() => setView('dashboard')}
-          onOpenDiff={(s) => setDiffSugg(s)}
+          onOpenDiff={handleOpenDiff}
           onOpenTests={() => setTestsOpen(true)}
           onOpenPr={() => setPrOpen(true)}
           onToast={toast}
         />
       )}
 
+      {/* Modals */}
       {uploadMode && (
-        <UploadModal mode={uploadMode} onClose={() => setUploadMode(null)} onOpenProject={openProject} />
+        <UploadModal
+          mode={uploadMode}
+          onClose={() => setUploadMode(null)}
+          onOpenDemoProject={openDemoProject}
+          onOpenRealWorkspace={openRealWorkspace}
+          onToast={toast}
+        />
       )}
 
       {diffSugg && (
         <DiffModal
           suggestion={diffSugg}
-          onClose={() => setDiffSugg(null)}
-          onAccept={() => {
+          diffData={diffData}
+          modifiedCode={modifiedCode}
+          workspaceId={workspaceId}
+          currentFile={currentFile}
+          onClose={() => { setDiffSugg(null); setDiffData(null); setModifiedCode(null); }}
+          onAccept={(code) => {
             setDiffSugg(null);
-            toast('Change applied', 'OrderService.java updated locally.');
+            setDiffData(null);
+            setModifiedCode(null);
+            if (currentFile && code) setCurrentFile(f => ({ ...f, content: code }));
+            toast('Change applied', currentFile ? `${currentFile.path.split('/').pop()} updated.` : 'File updated.');
           }}
-          onGenerateTests={() => { setDiffSugg(null); setTestsOpen(true); }}
+          onGenerateTests={() => { setDiffSugg(null); setDiffData(null); setTestsOpen(true); }}
+          onToast={toast}
         />
       )}
 
       {testsOpen && (
         <TestsModal
+          workspaceId={workspaceId}
+          currentFile={currentFile}
+          modifiedCode={modifiedCode}
           onClose={() => setTestsOpen(false)}
           onSave={(mode) => {
             setTestsOpen(false);
             if (mode === 'pr') setPrOpen(true);
-            else if (mode === 'download') toast('Download ready', 'orders-api.zip (2.4 MB) — including test class.');
-            else toast('Saved locally', 'OrderServiceTest.java added to src/test/java.');
+            else if (mode === 'download') toast('Download ready', 'Project zip prepared.');
+            else toast('Saved', 'Test file added to workspace.');
           }}
         />
       )}
 
       {prOpen && (
         <PrModal
+          workspaceId={workspaceId}
+          repoInfo={repoInfo}
+          currentFile={currentFile}
           onClose={() => setPrOpen(false)}
-          onSubmitted={(mode) => {
+          onSubmitted={(result) => {
             setPrOpen(false);
-            if (mode === 'download') toast('Download ready', 'orders-api.zip (2.4 MB) downloaded.');
-            else toast('Pull request opened', '#482 · ai/fix-order-items-npe → main');
+            if (result?.prUrl) toast('Pull request created', `#${result.prNumber} opened on GitHub`);
+            else if (result?.mode === 'download') toast('Download ready', 'Project zip prepared.');
+            else toast('Pushed', 'Changes pushed to branch.');
           }}
+          onToast={toast}
         />
       )}
 
@@ -177,33 +235,25 @@ export default function App() {
             <div className="tweak-row">
               <span className="lbl">Theme</span>
               <div className="tweak-options">
-                <button className={`tweak-opt ${tweaks.theme === 'light' ? 'active' : ''}`} onClick={() => setTweak({ theme: 'light' })}>
-                  <I.Sun size={11} /> Light
-                </button>
-                <button className={`tweak-opt ${tweaks.theme === 'dark' ? 'active' : ''}`} onClick={() => setTweak({ theme: 'dark' })}>
-                  <I.Moon size={11} /> Dark
-                </button>
+                {['light', 'dark'].map(t => (
+                  <button key={t} className={`tweak-opt ${tweaks.theme === t ? 'active' : ''}`} onClick={() => setTweak({ theme: t })}>
+                    {t === 'light' ? <><I.Sun size={11} /> Light</> : <><I.Moon size={11} /> Dark</>}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="tweak-row">
               <span className="lbl">Accent</span>
               <div className="swatches">
-                <button
-                  className={`swatch ${tweaks.accent === 'blue' ? 'active' : ''}`}
-                  style={{ background: tweaks.theme === 'dark' ? ACCENTS.blue.dark[0] : ACCENTS.blue.light[0] }}
-                  onClick={() => setTweak({ accent: 'blue' })}
-                  title="Deep blue"
-                />
-                <button
-                  className={`swatch ${tweaks.accent === 'teal' ? 'active' : ''}`}
-                  style={{ background: tweaks.theme === 'dark' ? ACCENTS.teal.dark[0] : ACCENTS.teal.light[0] }}
-                  onClick={() => setTweak({ accent: 'teal' })}
-                  title="Teal"
-                />
+                {['blue', 'teal'].map(ac => (
+                  <button key={ac} className={`swatch ${tweaks.accent === ac ? 'active' : ''}`}
+                    style={{ background: tweaks.theme === 'dark' ? ACCENTS[ac].dark[0] : ACCENTS[ac].light[0] }}
+                    onClick={() => setTweak({ accent: ac })} title={ac} />
+                ))}
               </div>
             </div>
             <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.45 }}>
-              Switching theme changes background, surfaces and accent contrast.
+              Switching theme changes all surfaces and accent contrast.
             </div>
           </div>
         </div>
