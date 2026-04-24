@@ -5,6 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { Workspace } from './components/Workspace';
 import { UploadModal, DiffModal, TestsModal, PrModal } from './components/Modals';
 import { PROJECTS, CODE_SAMPLES } from './data/index';
+import { checkHealth } from './api/client';
 
 const TWEAK_DEFAULTS = { theme: 'light', accent: 'blue' };
 const ACCENTS = {
@@ -36,6 +37,19 @@ export default function App() {
   const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
   const [tweaksUIVisible, setTweaksUIVisible] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [backendStatus, setBackendStatus] = useState('checking'); // checking | up | down
+
+  // Poll backend health every 8 seconds
+  useEffect(() => {
+    let cancelled = false;
+    async function ping() {
+      const { ok } = await checkHealth();
+      if (!cancelled) setBackendStatus(ok ? 'up' : 'down');
+    }
+    ping();
+    const id = setInterval(ping, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   // Apply theme/accent
   useEffect(() => {
@@ -125,6 +139,12 @@ export default function App() {
           )}
         </div>
         <span className="spacer"></span>
+        {/* Backend status indicator */}
+        <span title={backendStatus === 'up' ? 'API server running' : backendStatus === 'down' ? 'API server not running — start with: node backend/index.js' : 'Checking API server…'}
+          style={{ display:'flex', alignItems:'center', gap:5, fontSize:11.5, color: backendStatus === 'up' ? '#22c55e' : backendStatus === 'down' ? '#ef4444' : 'var(--muted)', marginRight:8, cursor:'default', userSelect:'none' }}>
+          <span style={{ width:7, height:7, borderRadius:'50%', background: backendStatus === 'up' ? '#22c55e' : backendStatus === 'down' ? '#ef4444' : '#94a3b8', display:'inline-block', flexShrink:0 }}></span>
+          {backendStatus === 'up' ? 'API ready' : backendStatus === 'down' ? 'API offline' : 'API…'}
+        </span>
         <button className="btn sm" onClick={() => setUploadMode('upload')}>
           <I.Plus size={12} /> New
         </button>

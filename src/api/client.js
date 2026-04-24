@@ -1,5 +1,12 @@
 const BASE = '/api';
 
+async function parseJSON(res) {
+  const text = await res.text();
+  if (!text.trim()) throw new Error('Backend not reachable — make sure the API server is running on port 3001 (run: node backend/index.js)');
+  try { return JSON.parse(text); }
+  catch { throw new Error('Backend not reachable — make sure the API server is running on port 3001 (run: node backend/index.js)'); }
+}
+
 // Reads a Server-Sent Events stream from a POST request
 export function streamSSE(url, body, onEvent, onDone, onError) {
   fetch(`${BASE}${url}`, {
@@ -9,7 +16,7 @@ export function streamSSE(url, body, onEvent, onDone, onError) {
   })
     .then(async (res) => {
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        const err = await parseJSON(res).catch(e => ({ error: e.message }));
         onError?.(new Error(err.error || 'Request failed'));
         return;
       }
@@ -37,10 +44,22 @@ export function streamSSE(url, body, onEvent, onDone, onError) {
 async function req(method, url, body, headers = {}) {
   const opts = { method, headers: { 'Content-Type': 'application/json', ...headers } };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(`${BASE}${url}`, opts);
-  const data = await res.json();
+  const res = await fetch(`${BASE}${url}`, opts).catch(() => {
+    throw new Error('Backend not reachable — start it with: node backend/index.js');
+  });
+  const data = await parseJSON(res);
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
+}
+
+export async function checkHealth() {
+  try {
+    const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(3000) });
+    const data = await res.json();
+    return { ok: true, model: data.model };
+  } catch {
+    return { ok: false };
+  }
 }
 
 // Workspace
@@ -55,8 +74,10 @@ export const upload = {
   files: async (fileList) => {
     const form = new FormData();
     for (const f of fileList) form.append('files', f);
-    const res = await fetch(`${BASE}/upload/files`, { method: 'POST', body: form });
-    const data = await res.json();
+    const res = await fetch(`${BASE}/upload/files`, { method: 'POST', body: form }).catch(() => {
+      throw new Error('Backend not reachable — start it with: node backend/index.js');
+    });
+    const data = await parseJSON(res);
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     return data;
   },
