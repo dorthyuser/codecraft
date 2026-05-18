@@ -1,0 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Manrope', 'Helvetica Neue', Helvetica, sans-serif;
+    background-color: #f6f4ef;
+    color: #161614;
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.005em;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  input, textarea, select { font: inherit; color: inherit; }
+}
+
+@layer components {
+  /* env card accent tints */
+  .env-card-aws   { background-image: radial-gradient(60% 80% at 100% 0%, rgba(217,176,94,0.18) 0%, transparent 70%); }
+  .env-card-azure { background-image: radial-gradient(60% 80% at 100% 0%, rgba(94,130,217,0.18) 0%, transparent 70%); }
+  .env-card-gcp   { background-image: radial-gradient(60% 80% at 100% 0%, rgba(94,185,140,0.18) 0%, transparent 70%); }
+  .env-card-vps   { background-image: radial-gradient(60% 80% at 100% 0%, rgba(140,94,200,0.18) 0%, transparent 70%); }
+
+  /* success ring animation */
+  .success-ring::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 2px solid rgba(94,185,174,0.35);
+    animation: ring 1.6s ease-out infinite;
+  }
+
+  /* scrollbar */
+  .scrollbar-thin { scrollbar-width: thin; scrollbar-color: #e3ddd0 transparent; }
+}
